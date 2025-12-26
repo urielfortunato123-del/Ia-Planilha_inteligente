@@ -1,0 +1,9 @@
+.streamlit/
+__pycache__/
+*.pyc
+.env
+.DS_Store
+*.xlsx
+!sua_planilha_modelo.xlsx
+venv/
+env/
