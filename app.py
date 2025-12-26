@@ -76,221 +76,143 @@ def mapear_colunas_inteligentes(columns):
                 
     return mapping
 
+def carregar_planilha_completa(file):
+    try:
+        # Load all sheets to let user choose
+        xl = pd.ExcelFile(file)
+        return xl
+    except Exception as e:
+        st.error(f"Erro ao ler abas do Excel: {e}")
+        return None
+
 def main():
     st.title("🏗️ Engenharia Inteligente")
     st.subheader("O marco da medição automatizada")
 
-    # --- Session State for Real-Time Agility ---
     if 'extra_data' not in st.session_state:
         st.session_state['extra_data'] = pd.DataFrame()
 
-    # --- Sidebar ---
     with st.sidebar:
         st.header("📂 Entrada de Dados")
-        uploaded_file = st.file_uploader("Upload da Planilha de Medição", type=["xlsx", "csv"])
+        uploaded_file = st.file_uploader("Upload do Boletim (BM)", type=["xlsx", "csv"])
         
+        df = None
         if uploaded_file:
+            if uploaded_file.name.endswith('.xlsx'):
+                xl = carregar_planilha_completa(uploaded_file)
+                if xl:
+                    aba = st.selectbox("Selecione a Aba (Sheet)", xl.sheet_names)
+                    pular_linhas = st.number_input("Pular Linhas (Cabeçalho)", min_value=0, value=0, help="Quantas linhas do topo ignorar até o título das colunas.")
+                    df = pd.read_excel(uploaded_file, sheet_name=aba, skiprows=pular_linhas)
+            else:
+                df = pd.read_csv(uploaded_file)
+
             st.divider()
             st.markdown("### ⚡ Centro de Agilidade")
             with st.expander("➕ Lançamento Rápido (Campo)"):
-                st.write("Adicione medições sem abrir o Excel.")
                 with st.form("quick_entry"):
                     new_date = st.date_input("Data da Medição")
                     new_med = st.number_input("Quantidade Medida", min_value=0.0)
                     new_val = st.number_input("Valor (R$)", min_value=0.0)
                     submit = st.form_submit_button("Lançar Medição")
-                    
                     if submit:
-                        new_row = pd.DataFrame([{
-                            "Data": new_date.strftime("%Y-%m-%d"),
-                            "Medição": new_med,
-                            "Valor": new_val
-                        }])
+                        new_row = pd.DataFrame([{"Data": new_date.strftime("%Y-%m-%d"), "Medição": new_med, "Valor": new_val}])
                         st.session_state['extra_data'] = pd.concat([st.session_state['extra_data'], new_row], ignore_index=True)
                         st.success("Lançamento concluído!")
             
-            do_audit = st.toggle("🔍 Auditoria Inteligente (Beta)", value=True, help="Detecta anomalias e erros de digitação automaticamente.")
-            
+            do_audit = st.toggle("🔍 Auditoria Inteligente", value=True)
             st.divider()
-            st.markdown("### 🎨 Visual")
-            theme_color = st.color_picker("Cor Principal do Projeto", "#ff4b4b")
+            theme_color = st.color_picker("Cor do Projeto", "#ff4b4b")
 
-    if uploaded_file:
-        raw_df = carregar_dados(uploaded_file)
+    if df is not None:
+        # Smart mapping extension for engineering BMs
+        mapping = mapear_colunas_inteligentes(df.columns)
+        keywords_eng = {
+            "disciplina": ["disciplina", "tipo", "grupo"],
+            "saldo": ["saldo", "restante", "balance"],
+            "acumulado": ["acumulado", "total medido", "total qty"]
+        }
+        for col in df.columns:
+            col_lower = str(col).lower()
+            for key, words in keywords_eng.items():
+                if key not in mapping and any(word in col_lower for word in words):
+                    mapping[key] = col
+
+        with st.expander("⚙️ Ajuste de Mapeamento (Engenharia)"):
+            c_data = st.selectbox("Data", df.columns, index=list(df.columns).index(mapping["data"]) if mapping.get("data") in df.columns else 0)
+            c_med = st.selectbox("Medição", df.columns, index=list(df.columns).index(mapping["medicao"]) if mapping.get("medicao") in df.columns else 0)
+            c_val = st.selectbox("Valor", df.columns, index=list(df.columns).index(mapping["valor"]) if mapping.get("valor") in df.columns else 0)
+            c_disc = st.selectbox("Disciplina/Grupo", df.columns, index=list(df.columns).index(mapping["disciplina"]) if mapping.get("disciplina") in df.columns else 0)
+
+        # 1. Audit
+        if do_audit and c_med in df.columns:
+            try:
+                # Filtrar apenas valores numéricos
+                valid_med = pd.to_numeric(df[c_med], errors='coerce').dropna()
+                if not valid_med.empty:
+                    mean_v = valid_med.mean()
+                    std_v = valid_med.std()
+                    outliers = valid_med[valid_med > (mean_v + 2.5 * std_v)]
+                    if not outliers.empty:
+                        st.warning(f"🩺 **Auditoria**: Detectamos {len(outliers)} medições atípicas para este grupo.")
+            except: pass
+
+        # 2. Executive View
+        st.markdown("### 📊 Painel de Medição")
+        try:
+            total_m = pd.to_numeric(df[c_med], errors='coerce').sum()
+            total_v = pd.to_numeric(df[c_val], errors='coerce').sum()
+            
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Total Medido", f"{total_m:,.2f}")
+            m2.metric("Valor Total", f"R$ {total_v:,.2f}")
+            
+            if c_disc in df.columns:
+                n_disc = df[c_disc].nunique()
+                m3.metric("Disciplinas", n_disc)
+        except: st.error("Erro no cálculo dos KPIs. Verifique o mapeamento das colunas.")
+
+        # 3. Visualizations
+        st.divider()
+        col_v1, col_v2 = st.columns([2, 1])
         
-        if raw_df is not None:
-            # Merge with session data for immediate agility
-            if not st.session_state['extra_data'].empty:
-                # Map session data columns to match raw_df if possible
-                mapping_temp = mapear_colunas_inteligentes(raw_df.columns)
-                mapped_extra = st.session_state['extra_data'].copy()
-                mapped_extra.columns = [mapping_temp['data'] or 'Data', mapping_temp['medicao'] or 'Medição', mapping_temp['valor'] or 'Valor']
-                df = pd.concat([raw_df, mapped_extra], ignore_index=True)
+        with col_v1:
+            st.markdown(f"### 📈 Evolução por {c_disc if c_disc in df.columns else 'Tempo'}")
+            if c_disc in df.columns:
+                fig = px.bar(df, x=c_disc, y=c_med, color=c_disc, template="plotly_dark", color_discrete_sequence=[theme_color])
             else:
-                df = raw_df
+                fig = px.area(df, x=c_data, y=c_med, template="plotly_dark", color_discrete_sequence=[theme_color])
+            st.plotly_chart(fig, use_container_width=True)
 
-            # 1. Smart Mapping
-            mapping = mapear_colunas_inteligentes(df.columns)
-            
-            # Allow manual override if needed but with smart defaults
-            with st.expander("⚙️ Ajuste de Mapeamento (Opcional)"):
-                col_data = st.selectbox("Coluna de Data/Tempo", df.columns, index=list(df.columns).index(mapping["data"]) if mapping["data"] in df.columns else 0)
-                col_med = st.selectbox("Coluna de Medição", df.columns, index=list(df.columns).index(mapping["medicao"]) if mapping["medicao"] in df.columns else 0)
-                col_val = st.selectbox("Coluna de Valor (R$)", df.columns, index=list(df.columns).index(mapping["valor"]) if mapping["valor"] in df.columns else 0)
-
-            # --- SMART AUDIT LAYER ---
-            if do_audit:
-                anomalies = []
-                mean_med = df[col_med].mean()
-                std_med = df[col_med].std()
-                
-                # Check for outliers (> 2 standard deviations)
-                outliers = df[df[col_med] > (mean_med + 2 * std_med)]
-                if not outliers.empty:
-                    anomalies.append(f"🚩 **Atenção**: Detectadas {len(outliers)} medições suspeitas (muito acima da média).")
-                
-                # Check for negative values
-                negatives = df[df[col_med] < 0]
-                if not negatives.empty:
-                    anomalies.append(f"⚠️ **Erro Crítico**: Existem {len(negatives)} valores negativos na coluna de medição.")
-
-                if anomalies:
-                    with st.container():
-                        st.warning("🩺 **Diagnóstico de Auditoria**")
-                        for a in anomalies:
-                            st.write(a)
-                        st.caption("Agilidade é focar no que precisa de correção.")
-
-            # 2. KPI Section (The "Heavy Lifting")
-            st.markdown("### 📊 Painel Executivo")
-            
-            total_medido = df[col_med].sum()
-            total_valor = df[col_val].sum() if col_val in df.columns else 0
-            media_medicao = df[col_med].mean()
-            
-            # Trend calculation
-            if len(df) >= 2:
-                last_val = df[col_med].iloc[-1]
-                prev_val = df[col_med].iloc[-2]
-                delta = ((last_val - prev_val) / prev_val) * 100 if prev_val != 0 else 0
+        with col_v2:
+            st.markdown("### 🛠️ Composição")
+            if c_disc in df.columns:
+                fig_pie = px.pie(df, names=c_disc, values=c_med, hole=0.4, template="plotly_dark")
+                st.plotly_chart(fig_pie, use_container_width=True)
             else:
-                delta = 0
+                st.info("Adicione uma coluna de 'Disciplina' para ver a composição.")
 
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric("Total Medido", f"{total_medido:,.2f}", help="Soma total de todas as medições")
-            m2.metric("Valor Total", f"R$ {total_valor:,.2f}")
-            m3.metric("Média/Período", f"{media_medicao:,.2f}")
-            m4.metric("Tendência (Última)", f"{delta:+.1f}%", delta=f"{delta:.1f}%")
+        # 4. AI Assistant
+        st.divider()
+        st.markdown("### 🤖 Assistente de Engenharia BM")
+        if model:
+            q = st.text_input("💬 O que você quer saber sobre este boletim?")
+            if st.button("Analisar Dado"):
+                with st.spinner("Consultando BM..."):
+                    context = f"Resumo do BM: Total {total_m}, Valor R${total_v}. Disciplinas: {df[c_disc].unique() if c_disc in df.columns else 'N/A'}. Pergunta: {q}"
+                    st.info(model.generate_content(context).text)
+        else:
+            st.warning("IA desativada. Configure a 'GOOGLE_API_KEY'.")
 
-            # 3. Main Visualizations
-            st.divider()
-            c1, c2 = st.columns([2, 1])
-            
-            with c1:
-                st.markdown("### 📈 Evolução da Medição")
-                fig_line = px.area(
-                    df, x=col_data, y=col_med, 
-                    title="Curva de Avanço",
-                    template="plotly_dark",
-                    color_discrete_sequence=[theme_color]
-                )
-                fig_line.update_layout(hovermode="x unified", xaxis_title=None, yaxis_title="Quantidade")
-                st.plotly_chart(fig_line, use_container_width=True)
-
-            with c2:
-                st.markdown("### 🎯 Meta vs Realizado")
-                target = st.number_input("Definir Meta Total", value=float(total_medido * 1.2) if total_medido > 0 else 1000.0, step=100.0)
-                
-                fig_gauge = go.Figure(go.Indicator(
-                    mode = "gauge+number+delta",
-                    value = total_medido,
-                    domain = {'x': [0, 1], 'y': [0, 1]},
-                    title = {'text': "Progresso do Projeto", 'font': {'size': 24}},
-                    delta = {'reference': target, 'increasing': {'color': "RebeccaPurple"}},
-                    gauge = {
-                        'axis': {'range': [None, target]},
-                        'bar': {'color': theme_color},
-                        'bgcolor': "white",
-                        'borderwidth': 2,
-                        'bordercolor': "gray",
-                        'steps': [
-                            {'range': [0, target * 0.5], 'color': '#262730'},
-                            {'range': [target * 0.5, target * 0.9], 'color': '#31333F'}
-                        ],
-                    }
-                ))
-                fig_gauge.update_layout(template="plotly_dark", height=300, margin=dict(l=20, r=20, t=50, b=20))
-                st.plotly_chart(fig_gauge, use_container_width=True)
-
-            # 4. Detailed Comparison Tool
-            st.divider()
-            st.markdown("### ⚖️ Ferramenta de Comparação Rápida")
-            comp_col1, comp_col2, comp_col3 = st.columns([1, 1, 2])
-            
-            with comp_col1:
-                c_atual = st.number_input("Medição Atual", value=float(last_val) if len(df) > 0 else 0.0)
-            with comp_col2:
-                c_anterior = st.number_input("Medição Anterior", value=float(prev_val) if len(df) > 1 else 0.0)
-            
-            with comp_col3:
-                diff = c_atual - c_anterior
-                perc = (diff / c_anterior) * 100 if c_anterior != 0 else 0
-                if diff >= 0:
-                    st.success(f"Aumento de **{diff:,.2f}** units (+{perc:.1f}%)")
-                else:
-                    st.warning(f"Redução de **{abs(diff):,.2f}** units ({perc:.1f}%)")
-
-            # 5. Gemini AI Analysis Section
-            st.divider()
-            st.markdown("### 🤖 Assistente de Engenharia (IA)")
-            
-            if model:
-                user_question = st.text_input("💬 Pergunte algo sobre os dados (ex: 'Qual a projeção para o próximo mês?')")
-                
-                if st.button("Consultar Especialista"):
-                    with st.spinner("Analisando..."):
-                        try:
-                            # Context with data for AI
-                            dataset_summary = df.tail(10).to_string() # Envia as últimas 10 linhas como contexto
-                            context = f"""
-                            Você é o Assistente de Engenharia Inteligente.
-                            DADOS DO PROJETO:
-                            - Total Medido: {total_medido:,.2f}
-                            - Valor Total: R$ {total_valor:,.2f}
-                            - Meta: {target:,.2f}
-                            - Últimas Medições:
-                            {dataset_summary}
-                            
-                            PERGUNTA DO USUÁRIO: {user_question if user_question else "Faça uma análise geral da saúde do projeto."}
-                            
-                            Responda de forma técnica, porém ágil e direta. Se houver riscos, aponte-os.
-                            """
-                            response = model.generate_content(context)
-                            st.info("💡 Insight da IA")
-                            st.markdown(response.text)
-                        except Exception as e:
-                            st.error(f"Erro na consulta: {e}")
-            else:
-                st.warning("⚠️ Configure 'GOOGLE_API_KEY' para ativar o assistente.")
-
-            # 6. Data Explorer
-            with st.expander("🔍 Explorar Dados Completos"):
-                if not st.session_state['extra_data'].empty:
-                    st.write("Incluindo lançamentos rápidos feitos nesta sessão.")
-                st.dataframe(df, use_container_width=True)
+        with st.expander("🔍 Navegador de Dados"):
+            st.dataframe(df, use_container_width=True)
 
     else:
-        # Welcome Screen
         st.write("---")
-        st.info("👋 **Canteiro de Obras Digital.** Suba sua planilha ou comece a lançar dados.")
-        
+        st.info("🏗️ **Pronto para analisar seu Boletim de Medição.** Suba o arquivo ao lado.")
         st.markdown("""
-        ### Foco em Agilidade Real:
-        - **Smart Audit**: Detecta erros de digitação e desvios de medição na hora.
-        - **Lançamento Direto**: Adicione dados pelo celular sem abrir o Excel.
-        - **Assistente IA**: Pergunte sobre o projeto e receba respostas baseadas nos dados.
+        **Suporte especializado para BMs de Engenharia:**
+        - Seleção de qualquer aba do Excel (Boletim, Controle, Análise).
+        - Ajuste dinâmico de cabeçalho (pula logos e linhas de projeto).
+        - Agrupamento inteligente por Disciplina.
         """)
-        st.caption("Dica: Use colunas com nomes simples como 'Data', 'Medição' e 'Valor'.")
-
-if __name__ == "__main__":
-    main()
