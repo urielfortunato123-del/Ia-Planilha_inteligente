@@ -79,21 +79,55 @@ def main():
     st.title("🏗️ Engenharia Inteligente")
     st.subheader("O marco da medição automatizada")
 
+    # --- Session State for Real-Time Agility ---
+    if 'extra_data' not in st.session_state:
+        st.session_state['extra_data'] = pd.DataFrame()
+
     # --- Sidebar ---
     with st.sidebar:
         st.header("📂 Entrada de Dados")
         uploaded_file = st.file_uploader("Upload da Planilha de Medição", type=["xlsx", "csv"])
-        st.info("O sistema fará o trabalho pesado de análise automaticamente.")
         
         if uploaded_file:
             st.divider()
-            st.markdown("### Configurações de Exibição")
+            st.markdown("### ⚡ Centro de Agilidade")
+            with st.expander("➕ Lançamento Rápido (Campo)"):
+                st.write("Adicione medições sem abrir o Excel.")
+                with st.form("quick_entry"):
+                    new_date = st.date_input("Data da Medição")
+                    new_med = st.number_input("Quantidade Medida", min_value=0.0)
+                    new_val = st.number_input("Valor (R$)", min_value=0.0)
+                    submit = st.form_submit_button("Lançar Medição")
+                    
+                    if submit:
+                        new_row = pd.DataFrame([{
+                            "Data": new_date.strftime("%Y-%m-%d"),
+                            "Medição": new_med,
+                            "Valor": new_val
+                        }])
+                        st.session_state['extra_data'] = pd.concat([st.session_state['extra_data'], new_row], ignore_index=True)
+                        st.success("Lançamento concluído!")
+            
+            do_audit = st.toggle("🔍 Auditoria Inteligente (Beta)", value=True, help="Detecta anomalias e erros de digitação automaticamente.")
+            
+            st.divider()
+            st.markdown("### 🎨 Visual")
             theme_color = st.color_picker("Cor Principal do Projeto", "#ff4b4b")
 
     if uploaded_file:
-        df = carregar_dados(uploaded_file)
+        raw_df = carregar_dados(uploaded_file)
         
-        if df is not None:
+        if raw_df is not None:
+            # Merge with session data for immediate agility
+            if not st.session_state['extra_data'].empty:
+                # Map session data columns to match raw_df if possible
+                mapping_temp = mapear_colunas_inteligentes(raw_df.columns)
+                mapped_extra = st.session_state['extra_data'].copy()
+                mapped_extra.columns = [mapping_temp['data'] or 'Data', mapping_temp['medicao'] or 'Medição', mapping_temp['valor'] or 'Valor']
+                df = pd.concat([raw_df, mapped_extra], ignore_index=True)
+            else:
+                df = raw_df
+
             # 1. Smart Mapping
             mapping = mapear_colunas_inteligentes(df.columns)
             
@@ -102,6 +136,29 @@ def main():
                 col_data = st.selectbox("Coluna de Data/Tempo", df.columns, index=list(df.columns).index(mapping["data"]) if mapping["data"] in df.columns else 0)
                 col_med = st.selectbox("Coluna de Medição", df.columns, index=list(df.columns).index(mapping["medicao"]) if mapping["medicao"] in df.columns else 0)
                 col_val = st.selectbox("Coluna de Valor (R$)", df.columns, index=list(df.columns).index(mapping["valor"]) if mapping["valor"] in df.columns else 0)
+
+            # --- SMART AUDIT LAYER ---
+            if do_audit:
+                anomalies = []
+                mean_med = df[col_med].mean()
+                std_med = df[col_med].std()
+                
+                # Check for outliers (> 2 standard deviations)
+                outliers = df[df[col_med] > (mean_med + 2 * std_med)]
+                if not outliers.empty:
+                    anomalies.append(f"🚩 **Atenção**: Detectadas {len(outliers)} medições suspeitas (muito acima da média).")
+                
+                # Check for negative values
+                negatives = df[df[col_med] < 0]
+                if not negatives.empty:
+                    anomalies.append(f"⚠️ **Erro Crítico**: Existem {len(negatives)} valores negativos na coluna de medição.")
+
+                if anomalies:
+                    with st.container():
+                        st.warning("🩺 **Diagnóstico de Auditoria**")
+                        for a in anomalies:
+                            st.write(a)
+                        st.caption("Agilidade é focar no que precisa de correção.")
 
             # 2. KPI Section (The "Heavy Lifting")
             st.markdown("### 📊 Painel Executivo")
@@ -141,9 +198,7 @@ def main():
 
             with c2:
                 st.markdown("### 🎯 Meta vs Realizado")
-                # Simple gauge or progress tracker
-                target = st.number_input("Definir Meta Total", value=float(total_medido * 1.2), step=100.0)
-                progress = min(total_medido / target, 1.0) if target > 0 else 0
+                target = st.number_input("Definir Meta Total", value=float(total_medido * 1.2) if total_medido > 0 else 1000.0, step=100.0)
                 
                 fig_gauge = go.Figure(go.Indicator(
                     mode = "gauge+number+delta",
@@ -186,54 +241,54 @@ def main():
 
             # 5. Gemini AI Analysis Section
             st.divider()
-            st.markdown("### 🤖 Insights da IA (Gemini)")
+            st.markdown("### 🤖 Assistente de Engenharia (IA)")
             
             if model:
-                if st.button("Gerar Análise Especialista"):
-                    with st.spinner("O Gemini está analisando seus dados de engenharia..."):
+                user_question = st.text_input("💬 Pergunte algo sobre os dados (ex: 'Qual a projeção para o próximo mês?')")
+                
+                if st.button("Consultar Especialista"):
+                    with st.spinner("Analisando..."):
                         try:
-                            # Prepare prompt with KPI data
+                            # Context with data for AI
+                            dataset_summary = df.tail(10).to_string() # Envia as últimas 10 linhas como contexto
                             context = f"""
-                            Você é um consultor especialista em engenharia e gestão de obras.
-                            Analise os seguintes dados de medição:
+                            Você é o Assistente de Engenharia Inteligente.
+                            DADOS DO PROJETO:
                             - Total Medido: {total_medido:,.2f}
                             - Valor Total: R$ {total_valor:,.2f}
-                            - Média por Período: {media_medicao:,.2f}
-                            - Tendência Recente: {delta:+.1f}%
-                            - Meta do Projeto: {target:,.2f}
+                            - Meta: {target:,.2f}
+                            - Últimas Medições:
+                            {dataset_summary}
                             
-                            Com base nisso, forneça:
-                            1. Uma análise rápida da saúde do projeto.
-                            2. Identifique possíveis riscos (atrasos, custos elevados).
-                            3. Sugira 3 ações práticas para o engenheiro responsável.
-                            Responda de forma profissional e direta.
+                            PERGUNTA DO USUÁRIO: {user_question if user_question else "Faça uma análise geral da saúde do projeto."}
+                            
+                            Responda de forma técnica, porém ágil e direta. Se houver riscos, aponte-os.
                             """
                             response = model.generate_content(context)
+                            st.info("💡 Insight da IA")
                             st.markdown(response.text)
                         except Exception as e:
-                            st.error(f"Erro ao gerar análise: {e}")
+                            st.error(f"Erro na consulta: {e}")
             else:
-                st.warning("⚠️ Chave de API do Google não configurada. Adicione 'GOOGLE_API_KEY' nas variáveis de ambiente.")
+                st.warning("⚠️ Configure 'GOOGLE_API_KEY' para ativar o assistente.")
 
             # 6. Data Explorer
             with st.expander("🔍 Explorar Dados Completos"):
+                if not st.session_state['extra_data'].empty:
+                    st.write("Incluindo lançamentos rápidos feitos nesta sessão.")
                 st.dataframe(df, use_container_width=True)
 
     else:
         # Welcome Screen
         st.write("---")
-        st.info("👋 **Bem-vindo à Engenharia Inteligente.** Para começar, suba sua planilha de medição no menu lateral.")
+        st.info("👋 **Canteiro de Obras Digital.** Suba sua planilha ou comece a lançar dados.")
         
-        # Engineering Mockup / Preview
         st.markdown("""
-        ### O que esta ferramenta faz por você:
-        - **Mapeia Sozinha**: Identifica datas, quantidades e valores.
-        - **Calcula Tendências**: Mostra automaticamente se o projeto está acelerando ou atrasando.
-        - **Visão Executiva**: Gera KPIs prontos para relatórios de diretoria.
-        - **Elimina Erros**: Processamento matemático preciso sem fórmulas de Excel complexas.
+        ### Foco em Agilidade Real:
+        - **Smart Audit**: Detecta erros de digitação e desvios de medição na hora.
+        - **Lançamento Direto**: Adicione dados pelo celular sem abrir o Excel.
+        - **Assistente IA**: Pergunte sobre o projeto e receba respostas baseadas nos dados.
         """)
-        
-        # Example of how to structure the excel
         st.caption("Dica: Use colunas com nomes simples como 'Data', 'Medição' e 'Valor'.")
 
 if __name__ == "__main__":
