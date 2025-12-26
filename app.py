@@ -68,7 +68,8 @@ def mapear_colunas_inteligentes(columns):
     }
     
     for col in columns:
-        col_lower = col.lower()
+        col_str = str(col)
+        col_lower = col_str.lower()
         for key, words in keywords.items():
             if mapping[key] is None and any(word in col_lower for word in words):
                 mapping[key] = col
