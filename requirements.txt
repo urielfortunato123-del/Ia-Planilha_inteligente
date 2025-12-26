@@ -4,3 +4,4 @@ openpyxl
 plotly
 GitPython
 python-dotenv
+google-generativeai

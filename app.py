@@ -1,9 +1,16 @@
-import streamlit as st
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-from datetime import datetime
-import numpy as np
+import google.generativeai as genai
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# --- AI Configuration ---
+GEMINI_API_KEY = os.getenv("GOOGLE_API_KEY")
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel('gemini-1.5-flash')
+else:
+    model = None
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -171,7 +178,38 @@ def main():
                 else:
                     st.warning(f"Redução de **{abs(diff):,.2f}** units ({perc:.1f}%)")
 
-            # 5. Data Explorer
+            # 5. Gemini AI Analysis Section
+            st.divider()
+            st.markdown("### 🤖 Insights da IA (Gemini)")
+            
+            if model:
+                if st.button("Gerar Análise Especialista"):
+                    with st.spinner("O Gemini está analisando seus dados de engenharia..."):
+                        try:
+                            # Prepare prompt with KPI data
+                            context = f"""
+                            Você é um consultor especialista em engenharia e gestão de obras.
+                            Analise os seguintes dados de medição:
+                            - Total Medido: {total_medido:,.2f}
+                            - Valor Total: R$ {total_valor:,.2f}
+                            - Média por Período: {media_medicao:,.2f}
+                            - Tendência Recente: {delta:+.1f}%
+                            - Meta do Projeto: {target:,.2f}
+                            
+                            Com base nisso, forneça:
+                            1. Uma análise rápida da saúde do projeto.
+                            2. Identifique possíveis riscos (atrasos, custos elevados).
+                            3. Sugira 3 ações práticas para o engenheiro responsável.
+                            Responda de forma profissional e direta.
+                            """
+                            response = model.generate_content(context)
+                            st.markdown(response.text)
+                        except Exception as e:
+                            st.error(f"Erro ao gerar análise: {e}")
+            else:
+                st.warning("⚠️ Chave de API do Google não configurada. Adicione 'GOOGLE_API_KEY' nas variáveis de ambiente.")
+
+            # 6. Data Explorer
             with st.expander("🔍 Explorar Dados Completos"):
                 st.dataframe(df, use_container_width=True)
 
